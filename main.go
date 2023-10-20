@@ -2,9 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/ga28299/rssagg/internal/database"
 	"github.com/go-chi/chi/v5"
@@ -18,6 +20,11 @@ type apiConfig struct {
 }
 
 func main() {
+	feed, err := urlToFeed("https://wagslane.dev/index.xml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(feed)
 
 	godotenv.Load(".env")
 
@@ -39,10 +46,12 @@ func main() {
 	if err != nil {
 		log.Fatal("Can't create db connection!", err)
 	}
-
+	db := database.New(conn)
 	apiCFG := apiConfig{
 		DB: database.New(conn),
 	}
+
+	go startScrapping(db, 10, time.Minute)
 
 	router := chi.NewRouter()
 	router.Use(cors.Handler(cors.Options{
@@ -58,6 +67,12 @@ func main() {
 	v1Router.Get("/healthz", handlerReadiness)
 	v1Router.Get("/err", handlerErr)
 	v1Router.Post("/users", apiCFG.handlerCreateUser)
+	v1Router.Get("/users", apiCFG.middlewareAuth(apiCFG.handlerGetUser))
+	v1Router.Post("/feeds", apiCFG.middlewareAuth(apiCFG.handlerCreateFeed))
+	v1Router.Get("/feeds", apiCFG.handlerGetFeeds)
+	v1Router.Post("/feed_follows", apiCFG.middlewareAuth(apiCFG.handlerCreateFeedFollow))
+	v1Router.Get("/feed_follows", apiCFG.middlewareAuth(apiCFG.handlerGetFeedFollows))
+	v1Router.Delete("/feed_follows/{feedFollowID}", apiCFG.middlewareAuth(apiCFG.handlerDeleteFeedFollow))
 
 	router.Mount("/v1", v1Router)
 
